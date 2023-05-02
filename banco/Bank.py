@@ -3,16 +3,24 @@ import json
 from flask import Flask, jsonify, request
 import uuid
 import datetime
-    
+
+user0 = {"id":0, "nome":"Lucas", "tipo":"particular", "saldo":400, "transacoes":{}}
+user1 = {"id":1, "nome":"Gabriela", "tipo":"particular", "saldo":400, "transacoes":{}}
+user2 = {"id":2, "nome":"Lara", "tipo":"particular", "saldo":400, "transacoes":{}}
+
+accounts = {}
+accounts["0"] = user0
+accounts["1"] = user1
+accounts["2"] = user2
+ 
 class Bank:
-    def __init__(self, bank_id, host_flask, port_flask):
+    def __init__(self, bank_id, host_flask, port_flask, accounts={}):
         self.bank_id = bank_id
         self.host_flask = host_flask
         self.port_flask = port_flask
         
-        self.contas_criadas = 0
-        
-        self.accounts = {}#accounts # Contas
+        self.accounts = accounts
+        self.contas_criadas = len(self.accounts)
         
         # Inicia o flask
         self.app = Flask(__name__)
@@ -130,11 +138,46 @@ class Bank:
                     
                     # Verifica se a conta existe no outro banco
                     if self.verifica_existencia_conta(body_check_user, to_bank_id):
-                        # Teste
-                        return jsonify({'OK': 'A conta existe'}), 200
+                        # Gera um ID único crescente, baseado na hora atual e
+                        # no endereço MAC do computador para a transação
+                        transaction_id = str(uuid.uuid1())
+                        # Inicia uma nova transação com status "pendente"
+                        transaction = {
+                            'id': transaction_id,
+                            'date_time': str(datetime.datetime.now()),
+                            'from_bank_id': from_bank_id,
+                            'from_account_id': from_account_id,
+                            'to_bank_id': to_bank_id,
+                            'to_account_id': to_account_id,
+                            'amount': amount,
+                            'status': 'pending'
+                        }
+                        
+                        # Cria a transação pendente
+                        self.accounts[str(from_account_id)]["transacoes"][transaction_id] = transaction
+                        
+                        # Verifica se o saldo irá ficar negativo
+                        if self.accounts[str(from_account_id)]['saldo'] - amount >= 0:
+                            
+                            if self.transferencia_outro_banco(transaction, to_bank_id):
+                                try:
+                                    # Diminui o dinheiro na conta
+                                    self.accounts[str(from_account_id)]['saldo'] -= amount
+                                
+                                    # Atualiza o status da transação para "concluída"
+                                    self.accounts[str(from_account_id)]["transacoes"][transaction_id]['status'] = 'completed'
+                                
+                                    # Retorna um JSON com o ID da transação e o status
+                                    return jsonify({'id': transaction_id, 'status': transaction['status']}), 200
+                                except Exception as e:
+                                    # Retorna um JSON com o erro
+                                    return jsonify({'error': f'{e}'}), 500
+                        else:
+                            # Retorna um JSON com o ID da transação e o status
+                            return jsonify({'error': 'Saldo insuficiente. Operação cancelada'}), 400
                     else:
                         # Teste
-                        return jsonify({'BAD REQUEST': 'A conta não existe'}), 400
+                        return jsonify({'Erro': f'A conta não existe no banco {to_account_id}'}), 400
                         
                     
             else:
@@ -207,12 +250,46 @@ class Bank:
             if str(to_account_id) in self.accounts:
                 return 'A conta existe', 200
             return 'A conta não existe', 404
+        
+        @self.app.route('/transferencia/outro_banco', methods=['POST'])
+        def escuta_outro_banco():
+            # Extrai dados do corpo da requisição
+            transacao = request.json
+            
+            transaction_id = request.json.get('id')
+            from_bank_id = request.json.get('from_bank_id')
+            from_account_id = request.json.get('from_account_id')
+            to_bank_id = request.json.get('to_bank_id')
+            to_account_id = request.json.get('to_account_id')
+            amount = request.json.get('amount')
+            
+            try:
+                # Atualiza a quantia na conta
+                self.accounts[str(to_account_id)]['saldo'] += amount
+                # Cria a transação
+                self.accounts[str(to_account_id)]["transacoes"][transaction_id] = transacao
+                # Atualiza o status da transação para "concluída"
+                self.accounts[str(to_account_id)]["transacoes"][transaction_id]['status'] = 'completed'
+            
+                # Retorna um JSON com o ID da transação e o status
+                return jsonify({'id': transaction_id, 'status': self.accounts[str(to_account_id)]["transacoes"][transaction_id]['status']}), 200
+            except Exception as e:
+                return jsonify({'error': 'Transaction not completed'}), 404
+                
                           
     def verifica_existencia_conta(self, body_check_user, to_bank_id):
         to_bank_id = str(to_bank_id)
         check_user = requests.post(f'http://localhost:800{to_bank_id}/transferencia/existencia_conta', json=body_check_user)
              
         if check_user.status_code == 200:
+            return True
+        return False
+
+    def transferencia_outro_banco(self, transaction, to_bank_id):
+        to_bank_id = str(to_bank_id)
+        request_var = requests.post(f'http://localhost:800{to_bank_id}/transferencia/outro_banco', json=transaction)
+             
+        if request_var.status_code == 200:
             return True
         return False
     
@@ -222,5 +299,5 @@ class Bank:
 
 
 if __name__ == '__main__':
-    bank = Bank(1, "localhost", 8001)
+    bank = Bank(1, "localhost", 8001, accounts=accounts)
     bank.flask_run()
