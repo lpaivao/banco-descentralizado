@@ -4,7 +4,7 @@
 		"name": "PBL 3",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "26064043",
-		"_collection_link": "https://red-eclipse-113247.postman.co/workspace/8963b403-1f5b-4797-8987-97986cf02a40/collection/26064043-1f1f3f4b-86c2-43ef-857b-487618627835?action=share&creator=26064043&source=collection_link"
+		"_collection_link": "https://red-eclipse-113247.postman.co/workspace/TEC502---MI---Concorr%C3%AAncia-e-Co~8963b403-1f5b-4797-8987-97986cf02a40/collection/26064043-1f1f3f4b-86c2-43ef-857b-487618627835?action=share&creator=26064043&source=collection_link"
 	},
 	"item": [
 		{
@@ -22,11 +22,11 @@
 					}
 				},
 				"url": {
-					"raw": "localhost:8000/banco/conta",
+					"raw": "localhost:8001/banco/conta",
 					"host": [
 						"localhost"
 					],
-					"port": "8000",
+					"port": "8001",
 					"path": [
 						"banco",
 						"conta"
@@ -50,11 +50,39 @@
 					}
 				},
 				"url": {
-					"raw": "localhost:8000/banco/conta",
+					"raw": "localhost:8001/banco/conta",
 					"host": [
 						"localhost"
 					],
-					"port": "8000",
+					"port": "8001",
+					"path": [
+						"banco",
+						"conta"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Criar usuário 1 Banco 2",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"nome\": \"Gabriela\",\n    \"tipo\": \"particular\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8002/banco/conta",
+					"host": [
+						"localhost"
+					],
+					"port": "8002",
 					"path": [
 						"banco",
 						"conta"
@@ -69,11 +97,11 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "localhost:8000/banco/conta/0/saldo",
+					"raw": "localhost:8001/banco/conta/0/saldo",
 					"host": [
 						"localhost"
 					],
-					"port": "8000",
+					"port": "8001",
 					"path": [
 						"banco",
 						"conta",
@@ -99,11 +127,11 @@
 					}
 				},
 				"url": {
-					"raw": "localhost:8000/banco/conta/deposito",
+					"raw": "localhost:8001/banco/conta/deposito",
 					"host": [
 						"localhost"
 					],
-					"port": "8000",
+					"port": "8001",
 					"path": [
 						"banco",
 						"conta",
@@ -128,11 +156,39 @@
 					}
 				},
 				"url": {
-					"raw": "localhost:8000/banco/transferencia",
+					"raw": "localhost:8001/banco/transferencia",
 					"host": [
 						"localhost"
 					],
-					"port": "8000",
+					"port": "8001",
+					"path": [
+						"banco",
+						"transferencia"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Transferência Outro Banco",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"from_account_id\": 0,\n    \"to_bank_id\": 2,\n    \"to_account_id\": 1,\n    \"amount\": 100\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8001/banco/transferencia",
+					"host": [
+						"localhost"
+					],
+					"port": "8001",
 					"path": [
 						"banco",
 						"transferencia"
@@ -147,16 +203,71 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "localhost:8000/banco/conta/0/transacao",
+					"raw": "localhost:8001/banco/conta/0/transacao",
 					"host": [
 						"localhost"
 					],
-					"port": "8000",
+					"port": "8001",
 					"path": [
 						"banco",
 						"conta",
 						"0",
 						"transacao"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "teste contas",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"to_bank_id\": 2,\n    \"to_account_id\": 1\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8002/transferencia/existencia_conta",
+					"host": [
+						"localhost"
+					],
+					"port": "8002",
+					"path": [
+						"transferencia",
+						"existencia_conta"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "teste comunicação",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8001/teste",
+					"host": [
+						"localhost"
+					],
+					"port": "8001",
+					"path": [
+						"teste"
 					]
 				}
 			},
