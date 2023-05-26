@@ -425,9 +425,13 @@ class Bank:
 
 
     def receber_transacao_cliente(self, transaction):
-        # Adiciona a fila de transações
-        self.fila_transacoes.append(transaction)
-        return 200
+        try:
+            # Adiciona a fila de transações
+            self.fila_transacoes.append(transaction)
+            self.relogio.tick()
+            return 200
+        except Exception:
+            return 400
 
     def iniciar_transacao(self):
         if len(self.fila_transacoes) > 0:
@@ -442,15 +446,17 @@ class Bank:
                                              data={'banco_solicitante': self.bank_id, 'tempo_recebido': tempo_atual})
                     if response != 200:
                         response = response.json()
-                        self.relogio.atualizar_tempo(response['tempo_recebido'])
+                        self.relogio.atualizar_tempo(int(response['tempo_recebido']))
+                        break
                     else:
                         lista_confirmacao += 1
 
             if self.esta_no_contexto_transacao(lista_confirmacao):
                 self.processar_fila_transacoes()  # Processa a fila de transações pendentes
 
-            return 'Transação iniciada com sucesso'
+            return 'Transações iniciadas com sucesso', 200
         else:
+            return 'Transações não iniciadas', 400
             pass
 
     def receber_solicitacao_transacao(self):
@@ -461,7 +467,8 @@ class Bank:
         if self.relogio.obter_tempo() <= tempo_recebido:
             return 200
         else:
-            return 204  # No content
+            # Senão, atualiza o tempo do outro relógio
+            return jsonify({"tempo_recebido": self.relogio.obter_tempo()}, 204)  # No content
 
     def processar_fila_transacoes(self):
         while len(self.fila_transacoes) > 0:
