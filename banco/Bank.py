@@ -1,9 +1,13 @@
+import threading
+import time
+
 import requests
 import json
-from threading import Semaphore
 from flask import Flask, jsonify, request
+from Relogio import RelogioLamport
 import uuid
 import datetime
+import schedule
 
 user0 = {"id": 0, "nome": "Lucas", "tipo": "particular", "saldo": 400, "transacoes": {}}
 user1 = {"id": 1, "nome": "Gabriela", "tipo": "particular", "saldo": 400, "transacoes": {}}
@@ -11,6 +15,12 @@ user2 = {"id": 2, "nome": "Lara", "tipo": "particular", "saldo": 400, "transacoe
 
 contas = {"0": user0, "1": user1, "2": user2}
 
+outros_bancos = ['http://localhost:8001', 'http://localhost:8002',
+                 'http://localhost:8003']  # Adicione aqui os endereços dos outros bancos
+
+
+# Variável de controle para pausar ou continuar as tarefas
+executar_tarefas = True
 
 class Bank:
     def __init__(self, bank_id, host_flask, port_flask, accounts=None):
@@ -20,14 +30,36 @@ class Bank:
         self.host_flask = host_flask
         self.port_flask = port_flask
 
+        # Informação do endereço de outros bancos
+        self.outros_bancos = outros_bancos
+        # Relógio de lamport
+        self.relogio = RelogioLamport()
+        # Fila de transações
+        self.fila_transacoes = []
         # Semáforo para cada clientes
-        self.clients_semaphore = {"0": Semaphore(1), "1": Semaphore(1), "2": Semaphore(1)}
+        # self.clients_semaphore = {"0": Semaphore(1), "1": Semaphore(1), "2": Semaphore(1)}
 
         self.accounts = accounts
         self.contas_criadas = len(self.accounts)
 
         # Inicia o flask
         self.app = Flask(__name__)
+
+        @self.app.route('/receber_solicitacao_transacao', methods=['POST'])
+        def receber_solicitacao_transacao():
+            resultado = self.receber_solicitacao_transacao()
+            return resultado
+
+        @self.app.route('/transacao_concluida', methods=['POST'])
+        def transacao_concluida():
+            resultado = self.transacao_concluida()
+            return resultado
+
+        @self.app.route('/receber_transacao_cliente', methods=['POST'])
+        def receber_transacao_cliente():
+            transaction = request.json()
+            resultado = self.receber_transacao_cliente(transaction)
+            return resultado
 
         @self.app.route('/banco/conta', methods=['POST'])
         def create_account():
@@ -50,7 +82,7 @@ class Bank:
                 self.accounts[account_id] = account
                 self.contas_criadas += 1
                 # Cria o semáforo para o cliente correspondente
-                self.clients_semaphore[account_id] = Semaphore(1)
+                # self.clients_semaphore[account_id] = Semaphore(1)
                 # Retorna o ID da nova conta criada
                 return jsonify({'id': account_id}), 201  # Código de criado
             else:
@@ -64,10 +96,10 @@ class Bank:
 
             # Adiciona o saldo a conta correspondente
             if id in self.accounts:
-                with self.clients_semaphore[id]:
-                    saldo_antigo = self.accounts[id]["saldo"]
-                    self.accounts[id]["saldo"] += deposito
-                    return jsonify({'Saldo antigo': saldo_antigo, 'Saldo novo': self.accounts[id]["saldo"]}), 200
+                # with self.clients_semaphore[id]:
+                saldo_antigo = self.accounts[id]["saldo"]
+                self.accounts[id]["saldo"] += deposito
+                return jsonify({'Saldo antigo': saldo_antigo, 'Saldo novo': self.accounts[id]["saldo"]}), 200
             else:
                 return jsonify({'Erro': "Usuário não existe"}), 404
 
@@ -95,45 +127,45 @@ class Bank:
                 # Verifica se o ID de destino e remetente existem
                 if str(from_account_id) in self.accounts and str(to_account_id) in self.accounts:
                     # Inicia os semáforos nas contas correspondetes
-                    with self.clients_semaphore[str(from_account_id)], self.clients_semaphore[str(to_account_id)]:
+                    # with self.clients_semaphore[str(from_account_id)], self.clients_semaphore[str(to_account_id)]:
 
-                        # Gera um ID único crescente, baseado na hora atual e
-                        # no endereço MAC do computador para a transação
-                        transaction_id = str(uuid.uuid1())
-                        # Inicia uma nova transação com status "pendente"
-                        transaction = {
-                            'id': transaction_id,
-                            'date_time': str(datetime.datetime.now()),
-                            'from_bank_id': from_bank_id,
-                            'from_account_id': from_account_id,
-                            'to_bank_id': to_bank_id,
-                            'to_account_id': to_account_id,
-                            'amount': amount,
-                            'status': 'pending'
-                        }
+                    # Gera um ID único crescente, baseado na hora atual e
+                    # no endereço MAC do computador para a transação
+                    transaction_id = str(uuid.uuid1())
+                    # Inicia uma nova transação com status "pendente"
+                    transaction = {
+                        'id': transaction_id,
+                        'date_time': str(datetime.datetime.now()),
+                        'from_bank_id': from_bank_id,
+                        'from_account_id': from_account_id,
+                        'to_bank_id': to_bank_id,
+                        'to_account_id': to_account_id,
+                        'amount': amount,
+                        'status': 'pending'
+                    }
 
-                        self.accounts[str(from_account_id)]["transacoes"][transaction_id] = transaction
+                    self.accounts[str(from_account_id)]["transacoes"][transaction_id] = transaction
 
-                        # Verifica se o saldo irá ficar negativo
-                        if self.accounts[str(from_account_id)]['saldo'] - amount >= 0:
-                            self.accounts[str(from_account_id)]['saldo'] -= amount
-                            self.accounts[str(to_account_id)]['saldo'] += amount
+                    # Verifica se o saldo irá ficar negativo
+                    if self.accounts[str(from_account_id)]['saldo'] - amount >= 0:
+                        self.accounts[str(from_account_id)]['saldo'] -= amount
+                        self.accounts[str(to_account_id)]['saldo'] += amount
 
-                            # Atualiza o status da transação para "concluída"
-                            self.accounts[str(from_account_id)]["transacoes"][transaction_id]['status'] = 'completed'
-                            # Cria a transação na conta que receber a transferência também
-                            self.accounts[str(to_account_id)]["transacoes"][transaction_id] = \
-                                self.accounts[str(from_account_id)]["transacoes"][transaction_id]
+                        # Atualiza o status da transação para "concluída"
+                        self.accounts[str(from_account_id)]["transacoes"][transaction_id]['status'] = 'completed'
+                        # Cria a transação na conta que receber a transferência também
+                        self.accounts[str(to_account_id)]["transacoes"][transaction_id] = \
+                            self.accounts[str(from_account_id)]["transacoes"][transaction_id]
 
-                            # Retorna um JSON com o ID da transação e o status
-                            return jsonify({'id': transaction_id, 'status': transaction['status']}), 200
+                        # Retorna um JSON com o ID da transação e o status
+                        return jsonify({'id': transaction_id, 'status': transaction['status']}), 200
 
-                        else:
-                            # Atualiza o status da transação para "cancelada"
-                            self.accounts[str(from_account_id)]["transacoes"][transaction_id]['status'] = 'canceled'
+                    else:
+                        # Atualiza o status da transação para "cancelada"
+                        self.accounts[str(from_account_id)]["transacoes"][transaction_id]['status'] = 'canceled'
 
-                            # Retorna um JSON com o ID da transação e o status
-                            return jsonify({'error': 'Saldo insuficiente. Operação cancelada'}), 400
+                        # Retorna um JSON com o ID da transação e o status
+                        return jsonify({'error': 'Saldo insuficiente. Operação cancelada'}), 400
                 else:
                     # Retorna um JSON indicando que o destinatário ou remetente não existe
                     return jsonify({'error': 'Uma das contas não existe. Operação cancelada'}), 400
@@ -150,57 +182,57 @@ class Bank:
                 verificacao = self.verifica_existencia_conta(body_check_user, to_bank_id)
                 if verificacao == 200 and str(from_account_id) in self.accounts:
                     # Ativa o semáforo da conta correspondente
-                    with self.clients_semaphore[str(from_account_id)]:
-                        # Gera um ID único crescente, baseado na hora atual e
-                        # no endereço MAC do computador para a transação
-                        transaction_id = str(uuid.uuid1())
-                        # Inicia uma nova transação com status "pendente"
-                        transaction = {
-                            'id': transaction_id,
-                            'date_time': str(datetime.datetime.now()),
-                            'from_bank_id': from_bank_id,
-                            'from_account_id': from_account_id,
-                            'to_bank_id': to_bank_id,
-                            'to_account_id': to_account_id,
-                            'amount': amount,
-                            'status': 'pending'
-                        }
+                    # with self.clients_semaphore[str(from_account_id)]:
+                    # Gera um ID único crescente, baseado na hora atual e
+                    # no endereço MAC do computador para a transação
+                    transaction_id = str(uuid.uuid1())
+                    # Inicia uma nova transação com status "pendente"
+                    transaction = {
+                        'id': transaction_id,
+                        'date_time': str(datetime.datetime.now()),
+                        'from_bank_id': from_bank_id,
+                        'from_account_id': from_account_id,
+                        'to_bank_id': to_bank_id,
+                        'to_account_id': to_account_id,
+                        'amount': amount,
+                        'status': 'pending'
+                    }
 
-                        # Cria a transação pendente
-                        self.accounts[str(from_account_id)]["transacoes"][transaction_id] = transaction
+                    # Cria a transação pendente
+                    self.accounts[str(from_account_id)]["transacoes"][transaction_id] = transaction
 
-                        # Verifica se o saldo irá ficar positivo ou negativo
-                        if self.accounts[str(from_account_id)]['saldo'] - amount >= 0:
-                            # Retém temporariamente o dinheiro que vai ser transferido
-                            self.accounts[str(from_account_id)]['saldo'] -= amount
+                    # Verifica se o saldo irá ficar positivo ou negativo
+                    if self.accounts[str(from_account_id)]['saldo'] - amount >= 0:
+                        # Retém temporariamente o dinheiro que vai ser transferido
+                        self.accounts[str(from_account_id)]['saldo'] -= amount
 
-                            # Tenta realizar a transferência
-                            status = self.envia_transferencia_esse_para_outro(transaction, to_bank_id)
+                        # Tenta realizar a transferência
+                        status = self.envia_transferencia_esse_para_outro(transaction, to_bank_id)
 
-                            if status == 200:
-                                try:
-                                    # Se conseguir fazer a transferencia no outro banco, o valor retido é descontado
-                                    # Atualiza o status da transação para "concluída"
-                                    self.accounts[str(from_account_id)]["transacoes"][transaction_id][
-                                        'status'] = 'completed'
+                        if status == 200:
+                            try:
+                                # Se conseguir fazer a transferencia no outro banco, o valor retido é descontado
+                                # Atualiza o status da transação para "concluída"
+                                self.accounts[str(from_account_id)]["transacoes"][transaction_id][
+                                    'status'] = 'completed'
 
-                                    # Retorna um JSON com o ID da transação e o status
-                                    return jsonify(
-                                        {'transaction id': transaction_id, 'status': transaction['status']}), 200
-                                except Exception as e:
-                                    # Retorna um JSON com o erro
-                                    return jsonify({'error': f'{e}'}), 500
+                                # Retorna um JSON com o ID da transação e o status
+                                return jsonify(
+                                    {'transaction id': transaction_id, 'status': transaction['status']}), 200
+                            except Exception as e:
+                                # Retorna um JSON com o erro
+                                return jsonify({'error': f'{e}'}), 500
 
-                            elif status == 500:
-                                return jsonify({'Erro': f'Sem resposta do Banco[{from_bank_id}] do destinatário'}), 400
+                        elif status == 500:
+                            return jsonify({'Erro': f'Sem resposta do Banco[{from_bank_id}] do destinatário'}), 400
 
-                            else:
-                                # Se não conseguir fazer a transferência, o valor é estornado
-                                self.accounts[str(from_account_id)]['saldo'] += amount
-                                return jsonify({'error': 'transferência não concluída, problema no outro banco'}), 400
                         else:
-                            # Retorna um JSON com o ID da transação e o status
-                            return jsonify({'error': 'Saldo insuficiente. Operação cancelada'}), 400
+                            # Se não conseguir fazer a transferência, o valor é estornado
+                            self.accounts[str(from_account_id)]['saldo'] += amount
+                            return jsonify({'error': 'transferência não concluída, problema no outro banco'}), 400
+                    else:
+                        # Retorna um JSON com o ID da transação e o status
+                        return jsonify({'error': 'Saldo insuficiente. Operação cancelada'}), 400
 
                 elif verificacao == 500:
                     return jsonify({'Erro': f'Banco não encontrado: {to_bank_id}'}), 400
@@ -296,27 +328,6 @@ class Bank:
                     return jsonify({"Erro": "Sem transações nessa conta"}), 400
             else:
                 return jsonify({"Erro": "Usuario nao encontrado"}), 404
-        """
-        @self.app.route('/transaction/<transaction_id>', methods=['DELETE'])
-        def cancel_transaction(transaction_id):
-            # Verifica se a transação existe e está pendente
-            if transaction_id in self.transactions and self.transactions[transaction_id]['status'] == 'pending':
-                # Cancela a transação e reverte a transferência entre as contas
-                from_bank_id = self.transactions[transaction_id]['from_bank_id']
-                from_account_id = self.transactions[transaction_id]['from_account_id']
-                to_bank_id = self.transactions[transaction_id]['to_bank_id']
-                to_account_id = self.transactions[transaction_id]['to_account_id']
-                amount = self.transactions[transaction_id]['amount']
-                self.accounts[from_bank_id][from_account_id]['balance'] += amount
-                self.accounts[to_bank_id][to_account_id]['balance'] -= amount
-                self.transactions[transaction_id]['status'] = 'cancelled'
-
-                # Retorna um JSON com o ID da transação e o status
-                return jsonify({'id': transaction_id, 'status': self.transactions[transaction_id]['status']}), 200
-            else:
-                # Retorna um erro 400 (Bad Request) se a transação não puder ser cancelada
-                return jsonify({'error': 'Transaction cannot be cancelled'}), 400
-        """
 
         @self.app.route('/banco/transferencia/existencia_conta', methods=['POST'])
         def escuta_existencia_conta():
@@ -336,21 +347,21 @@ class Bank:
             amount = request.json.get('amount')
 
             # Ativa o semáforo da conta correspondente
-            with self.clients_semaphore[str(to_account_id)]:
-                try:
-                    # Atualiza a quantia na conta
-                    self.accounts[str(to_account_id)]['saldo'] += amount
-                    # Cria a transação
-                    self.accounts[str(to_account_id)]["transacoes"][transaction_id] = transacao
-                    # Atualiza o status da transação para "concluída"
-                    self.accounts[str(to_account_id)]["transacoes"][transaction_id]['status'] = 'completed'
+            # with self.clients_semaphore[str(to_account_id)]:
+            try:
+                # Atualiza a quantia na conta
+                self.accounts[str(to_account_id)]['saldo'] += amount
+                # Cria a transação
+                self.accounts[str(to_account_id)]["transacoes"][transaction_id] = transacao
+                # Atualiza o status da transação para "concluída"
+                self.accounts[str(to_account_id)]["transacoes"][transaction_id]['status'] = 'completed'
 
-                    # Retorna um JSON com o ID da transação e o status
-                    return jsonify({'id': transaction_id,
-                                    'status': self.accounts[str(to_account_id)]["transacoes"][transaction_id][
-                                        'status']}), 200
-                except Exception as e:
-                    return jsonify({f'{e}': 'Transaction not completed'}), 404
+                # Retorna um JSON com o ID da transação e o status
+                return jsonify({'id': transaction_id,
+                                'status': self.accounts[str(to_account_id)]["transacoes"][transaction_id][
+                                    'status']}), 200
+            except Exception as e:
+                return jsonify({f'{e}': 'Transaction not completed'}), 404
 
         @self.app.route('/banco/transferencia/outro_para_outro', methods=['POST'])
         def outro_para_outro():
@@ -410,7 +421,108 @@ class Bank:
         except Exception as e:
             return f'{e}', 500
 
+
+
+
+    def receber_transacao_cliente(self, transaction):
+        # Adiciona a fila de transações
+        self.fila_transacoes.append(transaction)
+        return 200
+
+    def iniciar_transacao(self):
+        if len(self.fila_transacoes) > 0:
+            self.relogio.tick()  # Incrementa o tempo local antes de iniciar a transação
+            tempo_atual = self.relogio.obter_tempo()
+
+            # Envia a solicitação de transação para todos os outros bancos
+            lista_confirmacao = 0
+            for endereco_banco in self.outros_bancos:
+                if endereco_banco != request.url_root:  # Evita enviar a solicitação para o próprio banco
+                    response = requests.post(endereco_banco + '/receber_solicitacao_transacao',
+                                             data={'banco_solicitante': self.bank_id, 'tempo_recebido': tempo_atual})
+                    if response != 200:
+                        response = response.json()
+                        self.relogio.atualizar_tempo(response['tempo_recebido'])
+                    else:
+                        lista_confirmacao += 1
+
+            if self.esta_no_contexto_transacao(lista_confirmacao):
+                self.processar_fila_transacoes()  # Processa a fila de transações pendentes
+
+            return 'Transação iniciada com sucesso'
+        else:
+            pass
+
+    def receber_solicitacao_transacao(self):
+        tempo_recebido = int(request.form.get('tempo_recebido'))
+
+        # Se o tempo do relógio foi menor ou igual, significa que a operação é mais velha
+        # ou tão velha quanto e por isso vai ser processada primeiro, retornando 200
+        if self.relogio.obter_tempo() <= tempo_recebido:
+            return 200
+        else:
+            return 204  # No content
+
+    def processar_fila_transacoes(self):
+        while len(self.fila_transacoes) > 0:
+            # Pausa as tarefas para fazer as transferencias
+            self.pausar_tarefas()
+
+            transaction = self.fila_transacoes.pop(0)
+            # Se for uma transferência
+            if transaction["tipo_transacao"] == "0":
+                requests.post(request.url_root + '/banco/transferencia',
+                              json=transaction)
+            # Se for um depósito
+            elif transaction["tipo_transacao"] == "1":
+                requests.post(request.url_root + '/banco/conta/deposito',
+                              json=transaction)
+
+            self.relogio.tick()  # Incrementa o tempo local após processar a transação
+
+        # Continua as tarefas
+        self.continuar_tarefas()
+        # Agora precisamos avisar a todos os bancos que a transacao foi concluida, atualizando o relogio de cada um
+        tempo_atual = self.relogio.obter_tempo()
+        for endereco_banco in self.outros_bancos:
+            if endereco_banco != request.url_root:  # Evita enviar a solicitação para o próprio banco
+                requests.post(endereco_banco + '/transacao_concluida',
+                              data={'tempo_recebido': tempo_atual})
+
+    def transacao_concluida(self):
+        tempo_recebido = int(request.form.get('tempo_recebido'))
+        self.relogio.atualizar_tempo(tempo_recebido)
+        return 200
+
+    # Se a quantidade de bancos existentes concordaram com a transação
+    def esta_no_contexto_transacao(self, lista_confirmacao):
+        if lista_confirmacao == len(self.outros_bancos):
+            return True
+        return False
+
+    # Função para agendar e executar a tarefa de iniciar_transacao
+    def agendar_tarefas(self):
+        schedule.every(1).seconds.do(self.iniciar_transacao)
+        while True:
+            if executar_tarefas:
+                schedule.run_pending()
+            time.sleep(1)
+
+    def pausar_tarefas(self):
+        global executar_tarefas
+        executar_tarefas = False
+        print("Tarefas pausadas")
+
+    def continuar_tarefas(self):
+        global executar_tarefas
+        executar_tarefas = True
+        print("Tarefas continuadas")
+
     def flask_run(self):
+        tarefa_thread = threading.Thread(target=self.agendar_tarefas)
+        tarefa_thread.daemon = True  # Define a thread como um daemon para que ela seja interrompida quando o programa principal terminar
+        tarefa_thread.start()
+        # tarefa_thread.join()
         self.app.run(port=self.port_flask, debug=True)
 
 
