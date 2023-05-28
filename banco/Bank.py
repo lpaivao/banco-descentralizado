@@ -18,9 +18,9 @@ contas = {"0": user0, "1": user1, "2": user2}
 outros_bancos = ['http://localhost:8001', 'http://localhost:8002',
                  'http://localhost:8003']  # Adicione aqui os endereços dos outros bancos
 
-
 # Variável de controle para pausar ou continuar as tarefas
 executar_tarefas = True
+
 
 class Bank:
     def __init__(self, bank_id, host_flask, port_flask, accounts=None):
@@ -33,7 +33,7 @@ class Bank:
         # Informação do endereço de outros bancos
         self.outros_bancos = outros_bancos
         # Relógio de lamport
-        self.relogio = RelogioLamport()
+        self.relogio = RelogioLamport(len(outros_bancos))
         # Fila de transações
         self.fila_transacoes = []
         # Semáforo para cada clientes
@@ -421,56 +421,54 @@ class Bank:
         except Exception as e:
             return f'{e}', 500
 
-
-
-
     def receber_transacao_cliente(self, transaction):
         try:
             # Adiciona a fila de transações
             self.fila_transacoes.append(transaction)
-            self.relogio.tick()
-            return 200
+            self.relogio.incrementar(self.bank_id)
+            return "Transação solicitada", 200
         except Exception:
             return 400
 
     def iniciar_transacao(self):
         if len(self.fila_transacoes) > 0:
-            self.relogio.tick()  # Incrementa o tempo local antes de iniciar a transação
-            tempo_atual = self.relogio.obter_tempo()
+            relogio_atual = self.relogio.obter_relogio()
 
-            # Envia a solicitação de transação para todos os outros bancos
-            lista_confirmacao = 0
+            lista_confirmacao = 1
             for endereco_banco in self.outros_bancos:
                 if endereco_banco != request.url_root:  # Evita enviar a solicitação para o próprio banco
                     response = requests.post(endereco_banco + '/receber_solicitacao_transacao',
-                                             data={'banco_solicitante': self.bank_id, 'tempo_recebido': tempo_atual})
+                                             data={'banco_solicitante': self.bank_id,
+                                                   'relogio_recebido': relogio_atual})
                     if response != 200:
                         response = response.json()
-                        self.relogio.atualizar_tempo(int(response['tempo_recebido']))
-                        break
-                    else:
-                        lista_confirmacao += 1
+                        confirmacao = response['confirmacao']
+                        if confirmacao:
+                            lista_confirmacao += 1
 
+            # Verifica se todos os bancos concordaram
             if self.esta_no_contexto_transacao(lista_confirmacao):
                 self.processar_fila_transacoes()  # Processa a fila de transações pendentes
 
             return 'Transações iniciadas com sucesso', 200
         else:
             return 'Transações não iniciadas', 400
-            pass
 
     def receber_solicitacao_transacao(self):
-        tempo_recebido = int(request.form.get('tempo_recebido'))
-
-        # Se o tempo do relógio foi menor ou igual, significa que a operação é mais velha
-        # ou tão velha quanto e por isso vai ser processada primeiro, retornando 200
-        if self.relogio.obter_tempo() <= tempo_recebido:
-            return 200
-        else:
-            # Senão, atualiza o tempo do outro relógio
-            return jsonify({"tempo_recebido": self.relogio.obter_tempo()}, 204)  # No content
+        try:
+            banco_solicitante = int(request.form.get('banco_solicitante'))
+            relogio_recebido = request.form.get('relogio_recebido')
+            banco_resposta = self.bank_id
+            relogio_resposta = self.relogio.obter_relogio()
+            # Vai comparar o relógio para saber se o contexto é favorável a quem solicitou
+            confirmacao = compara_relogios(banco_solicitante, banco_resposta, relogio_recebido, relogio_resposta)
+            return jsonify({"confirma_transacao": confirmacao}, 200)
+        except Exception:
+            return 204
 
     def processar_fila_transacoes(self):
+        # Relogio auxiliar para segurar o relógio do exato momento de conclusão das transações
+        relogio_aux = self.relogio.obter_relogio()
         while len(self.fila_transacoes) > 0:
             # Pausa as tarefas para fazer as transferencias
             self.pausar_tarefas()
@@ -485,20 +483,20 @@ class Bank:
                 requests.post(request.url_root + '/banco/conta/deposito',
                               json=transaction)
 
-            self.relogio.tick()  # Incrementa o tempo local após processar a transação
-
-        # Continua as tarefas
-        self.continuar_tarefas()
         # Agora precisamos avisar a todos os bancos que a transacao foi concluida, atualizando o relogio de cada um
-        tempo_atual = self.relogio.obter_tempo()
+        tempo_atual = relogio_aux
         for endereco_banco in self.outros_bancos:
             if endereco_banco != request.url_root:  # Evita enviar a solicitação para o próprio banco
                 requests.post(endereco_banco + '/transacao_concluida',
-                              data={'tempo_recebido': tempo_atual})
+                              data={'relogio_recebido': tempo_atual})
+
+        # Continua as tarefas
+        self.continuar_tarefas()
 
     def transacao_concluida(self):
-        tempo_recebido = int(request.form.get('tempo_recebido'))
-        self.relogio.atualizar_tempo(tempo_recebido)
+        # Ajusta o relógio do banco que concluiu operações recentemente
+        relogio_recebido = request.form.get('relogio_recebido')
+        self.relogio.ajustar(relogio_recebido)
         return 200
 
     # Se a quantidade de bancos existentes concordaram com a transação
@@ -531,6 +529,16 @@ class Bank:
         tarefa_thread.start()
         # tarefa_thread.join()
         self.app.run(port=self.port_flask, debug=True)
+
+
+def compara_relogios(banco_solicitante, banco_resposta, relogio_solicitante, relogio_resposta):
+    # Diferença -> Mais atual - Mais antigo
+    diferenca_solicitante = relogio_solicitante[banco_solicitante] - relogio_resposta[banco_solicitante]
+    diferenca_resposta = relogio_resposta[banco_resposta] - relogio_solicitante[banco_resposta]
+    if diferenca_solicitante > diferenca_resposta:
+        return True
+    else:
+        return False
 
 
 if __name__ == '__main__':
