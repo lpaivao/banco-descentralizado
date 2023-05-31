@@ -542,5 +542,5 @@ def compara_relogios(banco_solicitante, banco_resposta, relogio_solicitante, rel
 
 
 if __name__ == '__main__':
-    bank = Bank(1, "localhost", 8001, accounts=contas)
+    bank = Bank(0, "localhost", 8000, accounts=contas)
     bank.flask_run()
