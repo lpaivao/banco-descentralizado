@@ -15,8 +15,9 @@ user2 = {"id": 2, "nome": "Lara", "tipo": "particular", "saldo": 400, "transacoe
 
 contas = {"0": user0, "1": user1, "2": user2}
 
-outros_bancos = ['http://localhost:8001', 'http://localhost:8002',
-                 'http://localhost:8003']  # Adicione aqui os endereços dos outros bancos
+outros_bancos = ['http://localhost:8000/',
+                 'http://localhost:8001/',
+                 'http://localhost:8002/']  # Adicione aqui os endereços dos outros bancos
 
 # Variável de controle para pausar ou continuar as tarefas
 executar_tarefas = True
@@ -52,14 +53,23 @@ class Bank:
 
         @self.app.route('/transacao_concluida', methods=['POST'])
         def transacao_concluida():
-            resultado = self.transacao_concluida()
-            return resultado
+            resultado = self.transacao_concluida(request.json)
+            return str(resultado)
 
         @self.app.route('/receber_transacao_cliente', methods=['POST'])
         def receber_transacao_cliente():
             transaction = request.get_json()
             resultado = self.receber_transacao_cliente(transaction)
             return resultado
+
+        @self.app.route('/iniciar_transacao', methods=['POST'])
+        def iniciar_transacao():
+            resultado = self.iniciar_transacao()
+            return resultado
+
+        @self.app.route('/fila_transacao', methods=['GET'])
+        def fila_transacao():
+            return str(self.fila_transacoes), 200
 
         @self.app.route('/banco/conta', methods=['POST'])
         def create_account():
@@ -323,7 +333,7 @@ class Bank:
                             'Valor da transação': value["amount"],
                             'Status da transação': value["status"]
                         }
-                        return jsonify(transacoes), 200
+                    return jsonify(transacoes), 200
                 else:
                     return jsonify({"Erro": "Sem transações nessa conta"}), 400
             else:
@@ -431,56 +441,85 @@ class Bank:
             return 400
 
     def iniciar_transacao(self):
+        print(request.url_root)
+        print(request.url_root)
         if len(self.fila_transacoes) > 0:
             relogio_atual = self.relogio.obter_relogio()
+            print("relogio atual:")
+            print(relogio_atual)
 
             lista_confirmacao = 1
             for endereco_banco in self.outros_bancos:
                 if endereco_banco != request.url_root:  # Evita enviar a solicitação para o próprio banco
                     response = requests.post(endereco_banco + '/receber_solicitacao_transacao',
-                                             data={'banco_solicitante': self.bank_id,
+                                             json={'banco_solicitante': self.bank_id,
                                                    'relogio_recebido': relogio_atual})
-                    if response != 200:
-                        response = response.json()
-                        confirmacao = response['confirmacao']
+
+                    if response.status_code == 200:
+                        body = response.json()
+                        confirmacao = body["confirma_transacao"]
                         if confirmacao:
                             lista_confirmacao += 1
+                    else:
+                        print('-------------------------------')
+                        print('Resposta do outro banco não retornou')
+                        print('-------------------------------')
 
             # Verifica se todos os bancos concordaram
             if self.esta_no_contexto_transacao(lista_confirmacao):
+                print('-------------------------------')
+                print('Está no contexto de transação')
+                print('-------------------------------')
                 self.processar_fila_transacoes()  # Processa a fila de transações pendentes
 
+            print('-------------------------------')
+            print('Transações iniciadas com sucesso')
+            print('-------------------------------')
             return 'Transações iniciadas com sucesso', 200
         else:
+            print('-------------------------------')
+            print('Transações não iniciadas')
+            print('-------------------------------')
             return 'Transações não iniciadas', 400
 
     def receber_solicitacao_transacao(self):
         try:
-            banco_solicitante = int(request.form.get('banco_solicitante'))
-            relogio_recebido = request.form.get('relogio_recebido')
+            dados = request.json
+            banco_solicitante = dados['banco_solicitante']
+            relogio_recebido = dados['relogio_recebido']
             banco_resposta = self.bank_id
             relogio_resposta = self.relogio.obter_relogio()
+            print(relogio_recebido)
+            print(relogio_resposta)
             # Vai comparar o relógio para saber se o contexto é favorável a quem solicitou
-            confirmacao = compara_relogios(banco_solicitante, banco_resposta, relogio_recebido, relogio_resposta)
-            return jsonify({"confirma_transacao": confirmacao}, 200)
+            confirmacao = self.compara_relogios(banco_solicitante, banco_resposta, relogio_recebido, relogio_resposta)
+            return jsonify({"confirma_transacao": confirmacao}), 200
         except Exception:
-            return 204
+            return jsonify({"confirma_transacao": False}), 204
 
     def processar_fila_transacoes(self):
+        print('-------------------------------')
+        print('Vai processar fila de transações')
+        print('-------------------------------')
         # Relogio auxiliar para segurar o relógio do exato momento de conclusão das transações
         relogio_aux = self.relogio.obter_relogio()
+        # Pausa as tarefas para fazer as transferencias
+        self.pausar_tarefas()
         while len(self.fila_transacoes) > 0:
-            # Pausa as tarefas para fazer as transferencias
-            self.pausar_tarefas()
 
             transaction = self.fila_transacoes.pop(0)
+            print(transaction)
             # Se for uma transferência
-            if transaction["tipo_transacao"] == "0":
-                requests.post(request.url_root + '/banco/transferencia',
+            if int(transaction["tipo_transacao"]) == 0:
+                print("Vai fazer uma transferencia")
+                print(request.url_root + 'banco/transferencia')
+                requests.post(request.url_root + 'banco/transferencia',
                               json=transaction)
             # Se for um depósito
-            elif transaction["tipo_transacao"] == "1":
-                requests.post(request.url_root + '/banco/conta/deposito',
+            elif int(transaction["tipo_transacao"]) == 1:
+                print("Vai fazer um deposito")
+                print(request.url_root + 'banco/conta/deposito')
+                requests.post(request.url_root + 'banco/conta/deposito',
                               json=transaction)
 
         # Agora precisamos avisar a todos os bancos que a transacao foi concluida, atualizando o relogio de cada um
@@ -488,16 +527,21 @@ class Bank:
         for endereco_banco in self.outros_bancos:
             if endereco_banco != request.url_root:  # Evita enviar a solicitação para o próprio banco
                 requests.post(endereco_banco + '/transacao_concluida',
-                              data={'relogio_recebido': tempo_atual})
+                              json={'relogio_recebido': tempo_atual})
 
         # Continua as tarefas
         self.continuar_tarefas()
 
-    def transacao_concluida(self):
-        # Ajusta o relógio do banco que concluiu operações recentemente
-        relogio_recebido = request.form.get('relogio_recebido')
-        self.relogio.ajustar(relogio_recebido)
-        return 200
+    def transacao_concluida(self, dados):
+        print("Entrou em tansação concluída")
+        try:
+            # Ajusta o relógio do banco que concluiu operações recentemente
+            relogio_recebido = dados['relogio_recebido']
+            self.relogio.ajustar(relogio_recebido)
+            return 200
+        except Exception as e:
+            print(e)
+            return 500
 
     # Se a quantidade de bancos existentes concordaram com a transação
     def esta_no_contexto_transacao(self, lista_confirmacao):
@@ -505,9 +549,32 @@ class Bank:
             return True
         return False
 
+    def compara_relogios(self, banco_solicitante, banco_resposta, relogio_solicitante, relogio_resposta):
+        # Diferença -> Mais atual - Mais antigo
+        print('-------------------------------')
+        print("relógios:")
+        print(relogio_solicitante)
+        print(relogio_resposta)
+        print('-------------------------------')
+        diferenca_solicitante = int(relogio_solicitante[banco_solicitante]) - int(relogio_resposta[banco_solicitante])
+        diferenca_resposta = int(relogio_resposta[banco_resposta]) - int(relogio_solicitante[banco_resposta])
+        if diferenca_solicitante > diferenca_resposta:
+            return True
+        elif diferenca_solicitante == diferenca_resposta:
+            self.relogio.incrementar(self.bank_id)
+            return True
+        else:
+            print('-------------------------------')
+            print("menor que")
+            print('-------------------------------')
+            return False
+
+    def transacoes_automaticas(self):
+        requests.post(f'http://localhost:800{self.bank_id}/iniciar_transacao')
+
     # Função para agendar e executar a tarefa de iniciar_transacao
     def agendar_tarefas(self):
-        schedule.every(1).seconds.do(self.iniciar_transacao)
+        schedule.every(2).seconds.do(self.transacoes_automaticas)
         while True:
             if executar_tarefas:
                 schedule.run_pending()
@@ -524,23 +591,12 @@ class Bank:
         print("Tarefas continuadas")
 
     def flask_run(self):
-        tarefa_thread = threading.Thread(target=self.agendar_tarefas)
-        tarefa_thread.daemon = True  # Define a thread como um daemon para que ela seja interrompida quando o programa principal terminar
-        tarefa_thread.start()
-        # tarefa_thread.join()
+        #tarefa_thread = threading.Thread(target=self.agendar_tarefas)
+        #tarefa_thread.daemon = True  # Define a thread como um daemon para que ela seja interrompida quando o programa principal terminar
+        #tarefa_thread.start()
         self.app.run(port=self.port_flask, debug=True)
 
 
-def compara_relogios(banco_solicitante, banco_resposta, relogio_solicitante, relogio_resposta):
-    # Diferença -> Mais atual - Mais antigo
-    diferenca_solicitante = relogio_solicitante[banco_solicitante] - relogio_resposta[banco_solicitante]
-    diferenca_resposta = relogio_resposta[banco_resposta] - relogio_solicitante[banco_resposta]
-    if diferenca_solicitante > diferenca_resposta:
-        return True
-    else:
-        return False
-
-
 if __name__ == '__main__':
-    bank = Bank(1, "localhost", 8001, accounts=contas)
+    bank = Bank(2, "localhost", 8002, accounts=contas)
     bank.flask_run()
