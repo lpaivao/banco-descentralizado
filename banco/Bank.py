@@ -8,6 +8,7 @@ from Relogio import RelogioLamport
 import uuid
 import datetime
 import schedule
+import socket
 
 user0 = {"id": 0, "nome": "Lucas", "tipo": "particular", "saldo": 400, "transacoes": {}}
 user1 = {"id": 1, "nome": "Gabriela", "tipo": "particular", "saldo": 400, "transacoes": {}}
@@ -15,10 +16,10 @@ user2 = {"id": 2, "nome": "Lara", "tipo": "particular", "saldo": 400, "transacoe
 
 contas = {"0": user0, "1": user1, "2": user2}
 
-# Endereço das maquinas 7, 8 e 9 do LARSID
-outros_bancos = [f'{const.ENDERECO_LARSID}.7:{const.PORTA}/',
-                 f'{const.ENDERECO_LARSID}.8:{const.PORTA}/',
-                 f'{const.ENDERECO_LARSID}.9:{const.PORTA}/']  # Adicione aqui os endereços dos outros bancos
+# Endereço das maquinas 1, 2 e 3 do LARSID
+outros_bancos = [f'{const.ENDERECO_LARSID}.1:{const.PORTA}/',
+                 f'{const.ENDERECO_LARSID}.2:{const.PORTA}/',
+                 f'{const.ENDERECO_LARSID}.3:{const.PORTA}/']  # Adicione aqui os endereços dos outros bancos
 
 # Variável de controle para pausar ou continuar as tarefas
 executar_tarefas = True
@@ -381,11 +382,14 @@ class Bank:
             """
             O próprio banco vai fazer o papel de cliente e solicitar para ele mesmo que a transferencia seja feita
             """
-            request_var = requests.post(f'{const.ENDERECO_LARSID}.{from_bank_id}:{const.PORTA}/banco/transferencia', json=transaction)
-            if request_var.status_code == 200:
-                return jsonify({'OK': "Transferência feita com sucesso"}), 200
-            return jsonify({'erro': "Transferência cancelada"}), 400
-
+            try:
+                request_var = requests.post(f'{const.LOCAL_HOST}:{const.PORTA}/banco/transferencia', json=transaction)
+                if request_var.status_code == 200:
+                    return jsonify({'OK': "Transferência feita com sucesso"}), 200
+                return jsonify({'erro': "Transferência cancelada"}), 400
+            except Exception as e:
+                return jsonify({'erro': f"{e}"}), 500
+            
     def verifica_existencia_conta(self, body_check_user, to_bank_id):
         try:
             to_bank_id = str(to_bank_id)
@@ -452,20 +456,23 @@ class Bank:
             lista_confirmacao = 1
             for endereco_banco in self.outros_bancos:
                 if endereco_banco != request.url_root:  # Evita enviar a solicitação para o próprio banco
-                    response = requests.post(endereco_banco + '/receber_solicitacao_transacao',
-                                             json={'banco_solicitante': self.bank_id,
-                                                   'relogio_recebido': relogio_atual})
+                    try:
+                        response = requests.post(endereco_banco + 'receber_solicitacao_transacao',
+                                                json={'banco_solicitante': self.bank_id,
+                                                    'relogio_recebido': relogio_atual})
 
-                    if response.status_code == 200:
-                        body = response.json()
-                        confirmacao = body["confirma_transacao"]
-                        if confirmacao:
-                            lista_confirmacao += 1
-                    else:
-                        print('-------------------------------')
-                        print('Resposta do outro banco não retornou')
-                        print('-------------------------------')
-
+                        if response.status_code == 200:
+                            body = response.json()
+                            confirmacao = body["confirma_transacao"]
+                            if confirmacao:
+                                lista_confirmacao += 1
+                        else:
+                            print('-------------------------------')
+                            print('Resposta do outro banco não retornou')
+                            print('-------------------------------')
+                    except Exception:
+                        lista_confirmacao = 1
+                        
             # Verifica se todos os bancos concordaram
             if self.esta_no_contexto_transacao(lista_confirmacao):
                 print('-------------------------------')
@@ -527,8 +534,11 @@ class Bank:
         tempo_atual = relogio_aux
         for endereco_banco in self.outros_bancos:
             if endereco_banco != request.url_root:  # Evita enviar a solicitação para o próprio banco
-                requests.post(endereco_banco + '/transacao_concluida',
-                              json={'relogio_recebido': tempo_atual})
+                try:
+                    requests.post(endereco_banco + 'transacao_concluida',
+                                json={'relogio_recebido': tempo_atual})
+                except Exception:
+                    print(f'Não conseguiu enviar para {endereco_banco}')
 
         # Continua as tarefas
         self.continuar_tarefas()
@@ -571,7 +581,10 @@ class Bank:
             return False
 
     def transacoes_automaticas(self):
-        requests.post(f'{const.ENDERECO_LARSID}.{self.bank_id}:{const.PORTA}/iniciar_transacao')
+        try:
+            requests.post(f'{const.LOCAL_HOST}:{const.PORTA}/iniciar_transacao')
+        except Exception as e:
+            print("Erro de conexão")
 
     # Função para agendar e executar a tarefa de iniciar_transacao
     def agendar_tarefas(self):
@@ -599,5 +612,5 @@ class Bank:
 
 
 if __name__ == '__main__':
-    bank = Bank(0, f'{const.ENDERECO_LARSID}.7', 8000, accounts=contas)
+    bank = Bank(1, host_flask=socket.gethostbyname(socket.gethostname()), port_flask=8000, accounts=contas)
     bank.flask_run()
