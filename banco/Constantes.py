@@ -1,3 +1,5 @@
-PORTA = '8000'
+import socket
+
+PORTA = '8001'
 ENDERECO_LARSID = "http://172.16.103"
-LOCAL_HOST = "http://localhost"
+LOCAL_HOST = f"http://{socket.gethostbyname(socket.gethostname())}"

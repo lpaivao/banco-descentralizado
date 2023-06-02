@@ -16,7 +16,7 @@ user2 = {"id": 2, "nome": "Lara", "tipo": "particular", "saldo": 400, "transacoe
 
 contas = {"0": user0, "1": user1, "2": user2}
 
-# Endereço das maquinas 1, 2 e 3 do LARSID
+# Endereço das maquinas 7, 8 e 9 do LARSID
 outros_bancos = [f'{const.ENDERECO_LARSID}.1:{const.PORTA}/',
                  f'{const.ENDERECO_LARSID}.2:{const.PORTA}/',
                  f'{const.ENDERECO_LARSID}.3:{const.PORTA}/']  # Adicione aqui os endereços dos outros bancos
@@ -36,7 +36,7 @@ class Bank:
         # Informação do endereço de outros bancos
         self.outros_bancos = outros_bancos
         # Relógio de lamport
-        self.relogio = RelogioLamport(len(outros_bancos))
+        self.relogio = RelogioLamport(len(self.outros_bancos) + 1)
         # Fila de transações
         self.fila_transacoes = []
         # Semáforo para cada clientes
@@ -432,7 +432,7 @@ class Bank:
 
             if request_var.status_code == 200:
                 return 200
-            return request_var.status_code
+            return 404
         except Exception as e:
             return f'{e}', 500
 
@@ -462,10 +462,10 @@ class Bank:
                             confirmacao = body["confirma_transacao"]
                             if confirmacao:
                                 lista_confirmacao += 1
-                            print(f'Banco {endereco_banco} respondeu')
+                            print(f'Banco {endereco_banco} deu permissão')
                             print('-------------------------------')
                         else:
-                            print(f'Banco {endereco_banco} não respondeu')
+                            print(f'Banco {endereco_banco} não deu permissão')
                             print('-------------------------------')
                     except Exception:
                         lista_confirmacao = 1
@@ -601,5 +601,5 @@ class Bank:
 
 
 if __name__ == '__main__':
-    bank = Bank(1, host_flask=socket.gethostbyname(socket.gethostname()), port_flask=8000, accounts=contas)
+    bank = Bank(2, host_flask=socket.gethostbyname(socket.gethostname()), port_flask=const.PORTA, accounts=contas)
     bank.flask_run()
