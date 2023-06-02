@@ -447,7 +447,7 @@ class Bank:
 
     def iniciar_transacao(self):
         print(request.url_root)
-        print(request.url_root)
+        print(socket.gethostbyname(socket.gethostname()))
         if len(self.fila_transacoes) > 0:
             relogio_atual = self.relogio.obter_relogio()
             print("relogio atual:")
@@ -608,7 +608,7 @@ class Bank:
         #tarefa_thread = threading.Thread(target=self.agendar_tarefas)
         #tarefa_thread.daemon = True  # Define a thread como um daemon para que ela seja interrompida quando o programa principal terminar
         #tarefa_thread.start()
-        self.app.run(port=self.port_flask, debug=True)
+        self.app.run(host=self.host_flask,port=self.port_flask, debug=True)
 
 
 if __name__ == '__main__':
