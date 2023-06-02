@@ -466,9 +466,12 @@ class Bank:
                             confirmacao = body["confirma_transacao"]
                             if confirmacao:
                                 lista_confirmacao += 1
+                            print('-------------------------------')
+                            print(f'Banco {endereco_banco} respondeu')
+                            print('-------------------------------')
                         else:
                             print('-------------------------------')
-                            print('Resposta do outro banco não retornou')
+                            print(f'Banco {endereco_banco} não respondeu')
                             print('-------------------------------')
                     except Exception:
                         lista_confirmacao = 1
