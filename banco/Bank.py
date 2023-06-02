@@ -446,12 +446,8 @@ class Bank:
             return 400
 
     def iniciar_transacao(self):
-        print(request.url_root)
-        print(socket.gethostbyname(socket.gethostname()))
         if len(self.fila_transacoes) > 0:
             relogio_atual = self.relogio.obter_relogio()
-            print("relogio atual:")
-            print(relogio_atual)
 
             lista_confirmacao = 1
             for endereco_banco in self.outros_bancos:
@@ -466,11 +462,9 @@ class Bank:
                             confirmacao = body["confirma_transacao"]
                             if confirmacao:
                                 lista_confirmacao += 1
-                            print('-------------------------------')
                             print(f'Banco {endereco_banco} respondeu')
                             print('-------------------------------')
                         else:
-                            print('-------------------------------')
                             print(f'Banco {endereco_banco} não respondeu')
                             print('-------------------------------')
                     except Exception:
@@ -478,17 +472,14 @@ class Bank:
                         
             # Verifica se todos os bancos concordaram
             if self.esta_no_contexto_transacao(lista_confirmacao):
-                print('-------------------------------')
                 print('Está no contexto de transação')
                 print('-------------------------------')
                 self.processar_fila_transacoes()  # Processa a fila de transações pendentes
 
-            print('-------------------------------')
             print('Transações iniciadas com sucesso')
             print('-------------------------------')
             return 'Transações iniciadas com sucesso', 200
         else:
-            print('-------------------------------')
             print('Transações não iniciadas')
             print('-------------------------------')
             return 'Transações não iniciadas', 400
@@ -500,8 +491,6 @@ class Bank:
             relogio_recebido = dados['relogio_recebido']
             banco_resposta = self.bank_id
             relogio_resposta = self.relogio.obter_relogio()
-            print(relogio_recebido)
-            print(relogio_resposta)
             # Vai comparar o relógio para saber se o contexto é favorável a quem solicitou
             confirmacao = self.compara_relogios(banco_solicitante, banco_resposta, relogio_recebido, relogio_resposta)
             return jsonify({"confirma_transacao": confirmacao}), 200
@@ -509,7 +498,6 @@ class Bank:
             return jsonify({"confirma_transacao": False}), 204
 
     def processar_fila_transacoes(self):
-        print('-------------------------------')
         print('Vai processar fila de transações')
         print('-------------------------------')
         # Relogio auxiliar para segurar o relógio do exato momento de conclusão das transações
@@ -547,7 +535,6 @@ class Bank:
         self.continuar_tarefas()
 
     def transacao_concluida(self, dados):
-        print("Entrou em tansação concluída")
         try:
             # Ajusta o relógio do banco que concluiu operações recentemente
             relogio_recebido = dados['relogio_recebido']
@@ -578,9 +565,6 @@ class Bank:
             self.relogio.incrementar(self.bank_id)
             return True
         else:
-            print('-------------------------------')
-            print("menor que")
-            print('-------------------------------')
             return False
 
     def transacoes_automaticas(self):
@@ -600,11 +584,13 @@ class Bank:
     def pausar_tarefas(self):
         global executar_tarefas
         executar_tarefas = False
+        print('-------------------------------')
         print("Tarefas pausadas")
 
     def continuar_tarefas(self):
         global executar_tarefas
         executar_tarefas = True
+        print('-------------------------------')
         print("Tarefas continuadas")
 
     def flask_run(self):
