@@ -16,9 +16,9 @@ user2 = {"id": 2, "nome": "Lara", "tipo": "particular", "saldo": 400, "transacoe
 contas = {"0": user0, "1": user1, "2": user2}
 
 # Endereço das maquinas 7, 8 e 9 do LARSID
-outros_bancos = [f'{const.ENDERECO_LARSID}.7:{const.PORTA}',
-                 f'{const.ENDERECO_LARSID}.8:{const.PORTA}',
-                 f'{const.ENDERECO_LARSID}.9:{const.PORTA}']  # Adicione aqui os endereços dos outros bancos
+outros_bancos = [f'{const.ENDERECO_LARSID}.7:{const.PORTA}/',
+                 f'{const.ENDERECO_LARSID}.8:{const.PORTA}/',
+                 f'{const.ENDERECO_LARSID}.9:{const.PORTA}/']  # Adicione aqui os endereços dos outros bancos
 
 # Variável de controle para pausar ou continuar as tarefas
 executar_tarefas = True
@@ -599,5 +599,5 @@ class Bank:
 
 
 if __name__ == '__main__':
-    bank = Bank(0, "localhost", 8000, accounts=contas)
+    bank = Bank(0, f'{const.ENDERECO_LARSID}.7', 8000, accounts=contas)
     bank.flask_run()
