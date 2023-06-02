@@ -1,3 +1,10 @@
+Autores:
+- [Lucas de Paiva Carianha](https://github.com/lpaivao)
+- [Lara Esquivel de Brito Santos](https://github.com/laraesquivel)
+
+Relatório no formato SBC:
+- [Ver relatório em SBC](relatorio_sbc.pdf)
+
 ## Introdução
 Nos últimos anos, o avanço da tecnologia tem revolucionado a forma como os clientes
 interagem com os serviços bancários. Em todo o mundo, os dispositivos móveis se
