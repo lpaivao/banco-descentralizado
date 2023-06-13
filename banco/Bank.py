@@ -111,6 +111,20 @@ class Bank:
                 # with self.clients_semaphore[id]:
                 saldo_antigo = self.accounts[id]["saldo"]
                 self.accounts[id]["saldo"] += deposito
+                
+                # Gera um ID único crescente, baseado na hora atual e
+                # no endereço MAC do computador para a transação
+                transaction_id = str(uuid.uuid1())
+                # Inicia uma nova transação com status "pendente"
+                transaction = {
+                    'id': transaction_id,
+                    'date_time': str(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                    'deposito': deposito,
+                    'status': 'completed'
+                }
+
+                self.accounts[str(id)]["transacoes"][transaction_id] = transaction
+                
                 return jsonify({'Saldo antigo': saldo_antigo, 'Saldo novo': self.accounts[id]["saldo"]}), 200
             else:
                 return jsonify({'Erro': "Usuário não existe"}), 404
@@ -601,5 +615,5 @@ class Bank:
 
 
 if __name__ == '__main__':
-    bank = Bank(2, host_flask=socket.gethostbyname(socket.gethostname()), port_flask=const.PORTA, accounts=contas)
+    bank = Bank(1, host_flask=socket.gethostbyname(socket.gethostname()), port_flask=const.PORTA, accounts=contas)
     bank.flask_run()
